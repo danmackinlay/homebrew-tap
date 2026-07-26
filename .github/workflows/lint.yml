@@ -1,0 +1,76 @@
+name: lint
+
+# Replaces the `brew test-bot` workflow that `brew tap-new` scaffolds. That one
+# exists to build and upload bottles, which this tap has no use for: its formulae
+# install prebuilt upstream release binaries, so there is no source build to cache
+# and a bottle would just be a repackage of the artefact we already downloaded.
+# What is worth automating instead is lint + a real install, plus a weekly run so
+# an upstream release that moves or deletes an asset shows up here, not on a
+# `brew install` you run six months from now.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15-intel, macos-26]
+        include:
+          - os: ubuntu-latest
+            container:
+              image: ghcr.io/homebrew/brew:main
+              options: --privileged
+    runs-on: ${{ matrix.os }}
+    container: ${{ fromJSON(toJSON(matrix.container)) }} # zizmor: ignore[unpinned-images]
+    steps:
+      # This action checks the calling repository out into its tap directory, so
+      # `danmackinlay/tap/...` below resolves to the code under test. No separate
+      # actions/checkout step is needed (or wanted — it would land in the wrong place).
+      - name: Set up Homebrew
+        id: set-up-homebrew
+        uses: Homebrew/actions/setup-homebrew@18fcb8e3e06b4247c676c506750dc95ea7226479 # 2026.07.13.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Homebrew Bundler RubyGems
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.set-up-homebrew.outputs.gems-path }}
+          key: ${{ matrix.os }}-rubygems-${{ steps.set-up-homebrew.outputs.gems-hash }}
+          restore-keys: ${{ matrix.os }}-rubygems-
+
+      - name: Check formula style
+        run: brew style danmackinlay/tap
+
+      # --online verifies the release URLs still resolve and the homepage is alive.
+      - name: Audit formulae
+        env:
+          HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: brew audit --strict --online --tap danmackinlay/tap
+
+      - name: Install
+        run: brew install --formula danmackinlay/tap/hister
+
+      # The test block boots a real server on a free port and curls it.
+      - name: Test
+        run: brew test danmackinlay/tap/hister
+
+      # Informational only: tells us a new upstream release is out. Never fails
+      # the run, since "upstream shipped 0.17" is news, not a broken tap.
+      - name: Check for newer upstream releases
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        continue-on-error: true
+        env:
+          HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: brew livecheck --newer-only --tap danmackinlay/tap
