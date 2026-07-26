@@ -52,6 +52,12 @@ that requires building from source. Two consequences:
   mode 0644 and the formula has to `chmod 0755` them. Without that, install fails
   with `EACCES` during completion generation.
 
+A **source-building** hister formula, suitable for a homebrew-core submission,
+is drafted on the [`homebrew-core-draft`](../../tree/homebrew-core-draft/contrib/homebrew-core)
+branch. It builds and passes `brew test`, `brew linkage --test` and
+`brew audit --new --strict --online`. It stays off `main` because a `.rb` outside
+`Formula/` is linted as plain Ruby by `brew style <tap>` and fails CI.
+
 **Bumping a version.** `brew livecheck --tap danmackinlay/tap` reports what is out;
 the weekly CI run does the same and prints it in the job log. To update all four
 url/sha256 pairs at once:
